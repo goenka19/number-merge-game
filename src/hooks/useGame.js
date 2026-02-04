@@ -1,4 +1,14 @@
 import { useState, useCallback, useEffect } from 'react';
+import { db } from '../firebase';
+import {
+  collection,
+  addDoc,
+  query,
+  orderBy,
+  limit,
+  onSnapshot,
+  serverTimestamp
+} from 'firebase/firestore';
 
 const ROWS = 8;
 const COLS = 5;
@@ -51,17 +61,6 @@ const generateBlockValue = (grid) => {
   });
 
   return weighted[Math.floor(Math.random() * weighted.length)];
-};
-
-// Calculate score (sum of all blocks)
-const calculateScore = (grid) => {
-  let score = 0;
-  grid.forEach(row => {
-    row.forEach(cell => {
-      if (cell !== null) score += cell;
-    });
-  });
-  return score;
 };
 
 // Check if grid is full
@@ -262,17 +261,29 @@ export const useGame = () => {
   const [droppingBlock, setDroppingBlock] = useState(null);
   const [mergingBlocks, setMergingBlocks] = useState(null); // { sources: [{row, col, value}], target: {row, col}, newValue }
   const [isAIMode, setIsAIMode] = useState(false);
-  const [leaderboard, setLeaderboard] = useState(() => {
-    const saved = localStorage.getItem('numberMergeLeaderboard');
-    if (saved) {
-      return JSON.parse(saved);
-    }
-    // Initialize with AI baseline score
-    const initialLeaderboard = [{ name: 'AI', score: 14618, isAI: true, date: '2026-02-03T00:00:00.000Z' }];
-    localStorage.setItem('numberMergeLeaderboard', JSON.stringify(initialLeaderboard));
-    return initialLeaderboard;
-  });
-  const [pendingScore, setPendingScore] = useState(null); // Score waiting for name input
+  const [leaderboard, setLeaderboard] = useState([]);
+  // Track if score has been saved for current game (to avoid duplicate saves)
+  const [scoreSaved, setScoreSaved] = useState(false);
+
+  // Subscribe to Firestore leaderboard (real-time updates)
+  useEffect(() => {
+    const leaderboardRef = collection(db, 'leaderboard');
+    const q = query(leaderboardRef, orderBy('score', 'desc'), limit(10));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const entries = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        // Convert Firestore timestamp to ISO string if present
+        date: doc.data().date?.toDate?.()?.toISOString() || doc.data().date
+      }));
+      setLeaderboard(entries);
+    }, (error) => {
+      console.error('Error fetching leaderboard:', error);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   // Update high score
   useEffect(() => {
@@ -282,56 +293,38 @@ export const useGame = () => {
     }
   }, [score, highScore]);
 
-  // When game ends, set pending score for human players or save AI score directly
-  useEffect(() => {
-    if (gameOver && score > 0) {
-      if (isAIMode) {
-        // Save AI score directly
-        const newEntry = {
-          name: 'AI',
-          score: score,
-          isAI: true,
-          date: new Date().toISOString(),
-        };
-        setLeaderboard(prev => {
-          const updated = [...prev, newEntry].sort((a, b) => b.score - a.score).slice(0, 10);
-          localStorage.setItem('numberMergeLeaderboard', JSON.stringify(updated));
-          return updated;
-        });
-      } else {
-        // Set pending score for human players to enter name
-        setPendingScore(score);
-      }
+  // Function to save score to leaderboard (writes to Firestore)
+  const saveScoreToLeaderboard = useCallback(async (scoreToSave, playerName, isAI) => {
+    if (scoreToSave <= 0 || scoreSaved) return;
+
+    // Check if score would qualify for top 10
+    const wouldQualify = leaderboard.length < 10 || scoreToSave > (leaderboard[leaderboard.length - 1]?.score || 0);
+    if (!wouldQualify && leaderboard.length >= 10) {
+      setScoreSaved(true);
+      return;
     }
-  }, [gameOver, isAIMode, score]);
 
-  // Function to save player score with name
-  const savePlayerScore = useCallback((playerName) => {
-    if (pendingScore === null) return;
-    const newEntry = {
-      name: playerName || 'Anonymous',
-      score: pendingScore,
-      isAI: false,
-      date: new Date().toISOString(),
-    };
-    setLeaderboard(prev => {
-      const updated = [...prev, newEntry].sort((a, b) => b.score - a.score).slice(0, 10);
-      localStorage.setItem('numberMergeLeaderboard', JSON.stringify(updated));
-      return updated;
-    });
-    setPendingScore(null);
-  }, [pendingScore]);
-
-  // Function to skip saving score
-  const skipSaveScore = useCallback(() => {
-    setPendingScore(null);
-  }, []);
+    try {
+      const leaderboardRef = collection(db, 'leaderboard');
+      await addDoc(leaderboardRef, {
+        name: isAI ? 'AI' : (playerName || 'Anonymous'),
+        score: scoreToSave,
+        isAI: isAI,
+        date: serverTimestamp(),
+      });
+      setScoreSaved(true);
+    } catch (error) {
+      console.error('Error saving score:', error);
+    }
+  }, [scoreSaved, leaderboard]);
 
   // Perform merges with animation delay between each step
+  // Returns { grid, scoreGained } where scoreGained is the total points from all merges
   const performMergesAnimated = useCallback(async (initialGrid, dropCol, dropRow) => {
     let currentGrid = initialGrid.map(row => [...row]);
     let activeCol = dropCol;
     let activeRow = dropRow;
+    let totalScoreGained = 0;
 
     const applyGravity = (grid) => {
       const newGrid = grid.map(row => [...row]);
@@ -419,6 +412,9 @@ export const useGame = () => {
           setMergingBlocks(null);
           setGrid([...currentGrid.map(row => [...row])]);
 
+          // Add merged value to score
+          totalScoreGained += newValue;
+
           // Apply gravity
           currentGrid = applyGravity(currentGrid);
           setGrid([...currentGrid.map(row => [...row])]);
@@ -458,6 +454,9 @@ export const useGame = () => {
           currentGrid[activeRow][activeCol] = newValue;
           setMergingBlocks(null);
           setGrid([...currentGrid.map(row => [...row])]);
+
+          // Add merged value to score
+          totalScoreGained += newValue;
 
           // Apply gravity
           currentGrid = applyGravity(currentGrid);
@@ -500,6 +499,9 @@ export const useGame = () => {
           setMergingBlocks(null);
           setGrid([...currentGrid.map(row => [...row])]);
 
+          // Add merged value to score
+          totalScoreGained += newValue;
+
           // Apply gravity
           currentGrid = applyGravity(currentGrid);
           setGrid([...currentGrid.map(row => [...row])]);
@@ -533,6 +535,9 @@ export const useGame = () => {
           setMergingBlocks(null);
           setGrid([...currentGrid.map(row => [...row])]);
 
+          // Add merged value to score
+          totalScoreGained += newValue;
+
           // Apply gravity
           currentGrid = applyGravity(currentGrid);
           setGrid([...currentGrid.map(row => [...row])]);
@@ -559,6 +564,9 @@ export const useGame = () => {
           currentGrid[activeRow - 1][activeCol] = null;
           setMergingBlocks(null);
           setGrid([...currentGrid.map(row => [...row])]);
+
+          // Add merged value to score
+          totalScoreGained += newValue;
 
           // Apply gravity
           currentGrid = applyGravity(currentGrid);
@@ -591,6 +599,9 @@ export const useGame = () => {
         setMergingBlocks(null);
         setGrid([...currentGrid.map(row => [...row])]);
 
+        // Add merged value to score
+        totalScoreGained += newValue;
+
         // Apply gravity
         currentGrid = applyGravity(currentGrid);
         setGrid([...currentGrid.map(row => [...row])]);
@@ -622,6 +633,9 @@ export const useGame = () => {
         setMergingBlocks(null);
         setGrid([...currentGrid.map(row => [...row])]);
 
+        // Add merged value to score
+        totalScoreGained += newValue;
+
         // Apply gravity
         currentGrid = applyGravity(currentGrid);
         setGrid([...currentGrid.map(row => [...row])]);
@@ -635,7 +649,7 @@ export const useGame = () => {
       }
     }
 
-    return currentGrid;
+    return { grid: currentGrid, scoreGained: totalScoreGained };
   }, []);
 
   // AI: Enhanced logic with second-order effects and structure optimization
@@ -829,10 +843,13 @@ export const useGame = () => {
     // Simulate drop animation delay
     setTimeout(async () => {
       let newGrid = grid.map(row => [...row]);
+      let immediateScoreGain = 0;
 
       if (landingRow === -1) {
         // Special case: merge with top block immediately
-        newGrid[0][col] = newGrid[0][col] * 2;
+        const mergedValue = newGrid[0][col] * 2;
+        newGrid[0][col] = mergedValue;
+        immediateScoreGain = mergedValue; // Add merged value to score
       } else {
         newGrid[landingRow][col] = droppedValue;
       }
@@ -845,11 +862,13 @@ export const useGame = () => {
 
       // Perform animated chain merges
       const actualDropRow = landingRow === -1 ? 0 : landingRow;
-      const mergedGrid = await performMergesAnimated(newGrid, col, actualDropRow);
+      const { grid: mergedGrid, scoreGained } = await performMergesAnimated(newGrid, col, actualDropRow);
 
-      // Calculate new score
-      const newScore = calculateScore(mergedGrid);
-      setScore(newScore);
+      // Add score from all merges (immediate merge + chain merges)
+      const totalScoreGain = immediateScoreGain + scoreGained;
+      if (totalScoreGain > 0) {
+        setScore(prev => prev + totalScoreGain);
+      }
 
       // Check game over
       if (isGridFull(mergedGrid) && !canMerge(mergedGrid)) {
@@ -872,6 +891,7 @@ export const useGame = () => {
     setDroppingBlock(null);
     setMergingBlocks(null);
     setIsAIMode(false);
+    setScoreSaved(false); // Reset for new game
   }, []);
 
   const togglePause = useCallback(() => {
@@ -888,9 +908,11 @@ export const useGame = () => {
   }, [isPaused]);
 
 
+  // Note: clearLeaderboard is disabled for global leaderboard
+  // Keep the function to avoid breaking the interface
   const clearLeaderboard = useCallback(() => {
-    setLeaderboard([]);
-    localStorage.removeItem('numberMergeLeaderboard');
+    // Disabled - global leaderboard cannot be cleared by users
+    console.log('Clear leaderboard is disabled for global leaderboard');
   }, []);
 
   // AI auto-play effect (always uses best AI - v2)
@@ -920,14 +942,12 @@ export const useGame = () => {
     mergingBlocks,
     isAIMode,
     leaderboard,
-    pendingScore,
     dropBlock,
     restart,
     togglePause,
     toggleAIMode,
     clearLeaderboard,
-    savePlayerScore,
-    skipSaveScore,
+    saveScoreToLeaderboard,
     ROWS,
     COLS,
   };

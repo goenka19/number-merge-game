@@ -398,6 +398,37 @@ body {
   line-height: 1.5;
 }
 
+.player-name-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 5px;
+}
+
+.player-name-label {
+  font-size: 13px;
+  color: #888;
+}
+
+.player-name-input {
+  padding: 8px 12px;
+  font-size: 13px;
+  border: 1px solid #3a3a4f;
+  border-radius: 6px;
+  background-color: #252530;
+  color: #f0f0f0;
+  width: 160px;
+}
+
+.player-name-input:focus {
+  outline: none;
+  border-color: #5a5a7f;
+}
+
+.player-name-input::placeholder {
+  color: #666;
+}
+
 .btn-small {
   padding: 8px 14px;
   font-size: 12px;
@@ -415,13 +446,13 @@ body {
 /* Leaderboard Panel - Fixed right side */
 .leaderboard-panel {
   position: fixed;
-  right: 20px;
+  right: 40px;
   top: 50%;
   transform: translateY(-50%);
   background-color: #1a1a1f;
   border-radius: 10px;
-  padding: 15px;
-  width: 180px;
+  padding: 15px 20px;
+  width: 200px;
 }
 
 .leaderboard-panel h4 {
@@ -482,6 +513,10 @@ body {
 .leaderboard-table tr.ai-entry td:nth-child(2) {
   color: #5a8aae;
   font-style: italic;
+}
+
+.leaderboard-table tr.empty-row td {
+  color: #444;
 }
 
 /* Mobile responsiveness */

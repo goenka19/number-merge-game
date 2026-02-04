@@ -16,20 +16,31 @@ const Game = () => {
     mergingBlocks,
     isAIMode,
     leaderboard,
-    pendingScore,
     dropBlock,
     restart,
     togglePause,
     toggleAIMode,
-    clearLeaderboard,
-    savePlayerScore,
-    skipSaveScore,
+    saveScoreToLeaderboard,
     ROWS,
     COLS,
   } = useGame();
 
-  // Player name input state
-  const [playerName, setPlayerName] = useState('');
+  // Player name input state - persisted in localStorage
+  const [playerName, setPlayerName] = useState(() => {
+    return localStorage.getItem('numberMergePlayerName') || '';
+  });
+
+  // Save player name to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('numberMergePlayerName', playerName);
+  }, [playerName]);
+
+  // Auto-save score to leaderboard when game ends
+  useEffect(() => {
+    if (gameOver && score > 0) {
+      saveScoreToLeaderboard(score, playerName, isAIMode);
+    }
+  }, [gameOver, score, playerName, isAIMode, saveScoreToLeaderboard]);
 
   // Color palette for preview blocks (no animation)
   const getBlockColor = (value) => {
@@ -77,11 +88,21 @@ const Game = () => {
 
   const confirmRestart = () => {
     setShowRestartConfirm(false);
+    // Save score to leaderboard before restarting (if score qualifies)
+    if (score > 0) {
+      saveScoreToLeaderboard(score, playerName, isAIMode);
+    }
     restart();
   };
 
   const cancelRestart = () => {
     setShowRestartConfirm(false);
+  };
+
+  // Handle game over - save score automatically
+  const handlePlayAgain = () => {
+    // Score is already saved via useEffect in useGame when gameOver becomes true
+    restart();
   };
 
   return (
@@ -144,61 +165,14 @@ const Game = () => {
             </div>
           )}
 
-          {gameOver && !pendingScore && (
+          {gameOver && (
             <div className="overlay">
               <div className="overlay-content">
                 <h2>Game Over</h2>
                 <p className="final-score">Final Score: {score}</p>
-                <button className="btn" onClick={restart}>
+                <button className="btn" onClick={handlePlayAgain}>
                   Play Again
                 </button>
-              </div>
-            </div>
-          )}
-
-          {pendingScore !== null && (
-            <div className="overlay">
-              <div className="overlay-content">
-                <h2>Game Over</h2>
-                <p className="final-score">Final Score: {pendingScore}</p>
-                <div className="name-input-section">
-                  <label className="name-label">Enter your name:</label>
-                  <input
-                    type="text"
-                    className="name-input"
-                    value={playerName}
-                    onChange={(e) => setPlayerName(e.target.value)}
-                    placeholder="Your name"
-                    maxLength={12}
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        savePlayerScore(playerName);
-                        setPlayerName('');
-                      }
-                    }}
-                  />
-                  <div className="btn-group">
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        skipSaveScore();
-                        setPlayerName('');
-                      }}
-                    >
-                      Skip
-                    </button>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        savePlayerScore(playerName);
-                        setPlayerName('');
-                      }}
-                    >
-                      Save
-                    </button>
-                  </div>
-                </div>
               </div>
             </div>
           )}
@@ -240,38 +214,44 @@ const Game = () => {
         <div className="instructions">
           <p>Tap a column to drop a block. Match same numbers to merge!</p>
         </div>
+
+        <div className="player-name-section">
+          <label className="player-name-label">Your Name:</label>
+          <input
+            type="text"
+            className="player-name-input"
+            value={playerName}
+            onChange={(e) => setPlayerName(e.target.value)}
+            placeholder="Enter name for leaderboard"
+            maxLength={12}
+          />
+        </div>
       </div>
 
       {/* Leaderboard - Side Section */}
       <div className="leaderboard-panel">
         <h4>Leaderboard</h4>
-        {leaderboard.length === 0 ? (
-          <p className="leaderboard-empty">No games yet</p>
-        ) : (
-          <>
-            <table className="leaderboard-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Name</th>
-                  <th>Score</th>
+        <table className="leaderboard-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Name</th>
+              <th>Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Array(10).fill(null).map((_, idx) => {
+              const entry = leaderboard[idx];
+              return (
+                <tr key={idx} className={`${entry && idx === 0 ? 'top' : ''} ${entry?.isAI ? 'ai-entry' : ''} ${!entry ? 'empty-row' : ''}`}>
+                  <td>{idx + 1}</td>
+                  <td>{entry?.name || '—'}</td>
+                  <td>{entry?.score || '—'}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {leaderboard.map((entry, idx) => (
-                  <tr key={idx} className={`${idx === 0 ? 'top' : ''} ${entry.isAI ? 'ai-entry' : ''}`}>
-                    <td>{idx + 1}</td>
-                    <td>{entry.name}</td>
-                    <td>{entry.score}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <button className="btn btn-small btn-danger" onClick={clearLeaderboard}>
-              Clear
-            </button>
-          </>
-        )}
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
