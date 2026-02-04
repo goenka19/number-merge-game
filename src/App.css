@@ -22,6 +22,8 @@ body {
 .game-wrapper {
   display: flex;
   justify-content: center;
+  align-items: flex-start;
+  gap: 40px;
   position: relative;
 }
 
@@ -445,16 +447,14 @@ body {
   background-color: #6a3a3a;
 }
 
-/* Leaderboard Panel - Fixed right side */
+/* Leaderboard Panel - Right side aligned with grid */
 .leaderboard-panel {
-  position: fixed;
-  right: 40px;
-  top: 50%;
-  transform: translateY(-50%);
   background-color: #1a1a1f;
   border-radius: 10px;
   padding: 15px 20px;
   width: 200px;
+  margin-top: 155px;
+  flex-shrink: 0;
 }
 
 .leaderboard-panel h4 {
