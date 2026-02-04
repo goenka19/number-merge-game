@@ -214,22 +214,21 @@ const Game = () => {
         <div className="instructions">
           <p>Tap a column to drop a block. Match same numbers to merge!</p>
         </div>
+      </div>
 
+      {/* Leaderboard - Side Section */}
+      <div className="leaderboard-panel">
         <div className="player-name-section">
-          <label className="player-name-label">Your Name:</label>
+          <label className="player-name-label">Your Name</label>
           <input
             type="text"
             className="player-name-input"
             value={playerName}
             onChange={(e) => setPlayerName(e.target.value)}
-            placeholder="Enter name for leaderboard"
+            placeholder="Enter name"
             maxLength={12}
           />
         </div>
-      </div>
-
-      {/* Leaderboard - Side Section */}
-      <div className="leaderboard-panel">
         <h4>Leaderboard</h4>
         <table className="leaderboard-table">
           <thead>
