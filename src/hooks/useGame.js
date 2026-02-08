@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { db } from '../firebase';
 import {
   collection,
@@ -263,7 +263,8 @@ export const useGame = () => {
   const [isAIMode, setIsAIMode] = useState(false);
   const [leaderboard, setLeaderboard] = useState([]);
   // Track if score has been saved for current game (to avoid duplicate saves)
-  const [scoreSaved, setScoreSaved] = useState(false);
+  // Using ref instead of state to avoid race conditions with leaderboard updates
+  const scoreSavedRef = useRef(false);
 
   // Subscribe to Firestore leaderboard (real-time updates)
   useEffect(() => {
@@ -295,14 +296,11 @@ export const useGame = () => {
 
   // Function to save score to leaderboard (writes to Firestore)
   const saveScoreToLeaderboard = useCallback(async (scoreToSave, playerName, isAI) => {
-    if (scoreToSave <= 0 || scoreSaved) return;
+    // Use ref to prevent race conditions - check synchronously before any async ops
+    if (scoreToSave <= 0 || scoreSavedRef.current) return;
 
-    // Check if score would qualify for top 10
-    const wouldQualify = leaderboard.length < 10 || scoreToSave > (leaderboard[leaderboard.length - 1]?.score || 0);
-    if (!wouldQualify && leaderboard.length >= 10) {
-      setScoreSaved(true);
-      return;
-    }
+    // Mark as saved immediately to prevent duplicate calls
+    scoreSavedRef.current = true;
 
     try {
       const leaderboardRef = collection(db, 'leaderboard');
@@ -312,11 +310,12 @@ export const useGame = () => {
         isAI: isAI,
         date: serverTimestamp(),
       });
-      setScoreSaved(true);
     } catch (error) {
       console.error('Error saving score:', error);
+      // Reset on error so user can try again
+      scoreSavedRef.current = false;
     }
-  }, [scoreSaved, leaderboard]);
+  }, []);
 
   // Perform merges with animation delay between each step
   // Returns { grid, scoreGained } where scoreGained is the total points from all merges
@@ -891,7 +890,7 @@ export const useGame = () => {
     setDroppingBlock(null);
     setMergingBlocks(null);
     setIsAIMode(false);
-    setScoreSaved(false); // Reset for new game
+    scoreSavedRef.current = false; // Reset for new game
   }, []);
 
   const togglePause = useCallback(() => {
